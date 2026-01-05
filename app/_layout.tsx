@@ -3,6 +3,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
 import "../global.css";
+import { ClerkProvider } from "../providers/ClerkProvider";
 
 // Prevent the native splash screen from auto-hiding
 SplashScreen.preventAutoHideAsync();
@@ -14,7 +15,7 @@ export default function RootLayout() {
     const prepare = async () => {
       // You can load fonts, make API calls, etc. here
       // For now, just wait 3 seconds to view splash
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       setAppIsReady(true);
     };
 
@@ -33,11 +34,14 @@ export default function RootLayout() {
   }
 
   return (
-    <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
-      <Stack>
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="test" options={{ headerShown: false }} />
-      </Stack>
-    </View>
+    <ClerkProvider>
+      <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="(public)" />
+          <Stack.Screen name="(protected)" />
+        </Stack>
+      </View>
+    </ClerkProvider>
   );
 }
