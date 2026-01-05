@@ -21,12 +21,12 @@ export default function NewEntry() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
-  const { id } = useLocalSearchParams();
+  const { id, title: paramTitle, type } = useLocalSearchParams();
   const isEditing = !!id;
 
   const [selectedMood, setSelectedMood] = useState(3); // Default to neutral
   const [selectedCategory, setSelectedCategory] = useState("personal");
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(paramTitle ? String(paramTitle) : "");
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);

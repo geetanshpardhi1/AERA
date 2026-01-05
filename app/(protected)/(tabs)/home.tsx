@@ -1,10 +1,13 @@
 import { useUser } from "@clerk/clerk-expo";
 import { Pacifico_400Regular, useFonts } from "@expo-google-fonts/pacifico";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,20 +15,10 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { aiService } from "../../../lib/ai-service";
 import { JournalEntry, journalService } from "../../../lib/journal-service";
 
-// ... (existing code)
-
 const { width } = Dimensions.get("window");
-
-// Daily questions for reflection
-const dailyQuestions = [
-  "What is one small win you celebrated today?",
-  "What made you smile today?",
-  "What are you grateful for right now?",
-  "What did you learn today?",
-  "How did you show kindness today?",
-];
 
 export default function Home() {
   const { user } = useUser();
@@ -34,30 +27,85 @@ export default function Home() {
 
   const [recentEntries, setRecentEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // AI Prompt State
+  const [dailyPrompt, setDailyPrompt] = useState<{
+    question: string;
+    description: string;
+  } | null>(null);
+  const [loadingPrompt, setLoadingPrompt] = useState(true);
 
   // Load Pacifico font
   const [fontsLoaded] = useFonts({
     Pacifico_400Regular,
   });
 
-  // Fetch recent entries
+  const fetchRecent = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await journalService.getRecent(user.id, 3);
+      setRecentEntries(data);
+    } catch (error) {
+      console.error("Error fetching recent entries:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  const fetchDailyPrompt = useCallback(async (force = false) => {
+    try {
+      const today = new Date().toDateString();
+
+      if (!force) {
+        const stored = await AsyncStorage.getItem("aera_daily_prompt");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed.date === today && parsed.data) {
+            setDailyPrompt(parsed.data);
+            setLoadingPrompt(false);
+            return;
+          }
+        }
+      }
+
+      // Generate New
+      setLoadingPrompt(true);
+      const newPrompt = await aiService.generateDailyQuestion();
+      await AsyncStorage.setItem(
+        "aera_daily_prompt",
+        JSON.stringify({ date: today, data: newPrompt })
+      );
+      setDailyPrompt(newPrompt);
+    } catch (e) {
+      console.error("Daily Prompt Error", e);
+      setDailyPrompt({
+        question: "What made you smile today?",
+        description: "Happiness is found in the little things.",
+      });
+    } finally {
+      setLoadingPrompt(false);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      const fetchRecent = async () => {
-        if (!user) return;
-        try {
-          const data = await journalService.getRecent(user.id, 3);
-          setRecentEntries(data);
-        } catch (error) {
-          console.error("Error fetching recent entries:", error);
-        } finally {
-          setLoading(false);
-        }
-      };
-
       fetchRecent();
-    }, [user])
+    }, [fetchRecent])
   );
+
+  useEffect(() => {
+    fetchDailyPrompt(false);
+  }, [fetchDailyPrompt]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchRecent(),
+      fetchDailyPrompt(false), // Do not force regen
+    ]);
+    setRefreshing(false);
+  }, [fetchRecent, fetchDailyPrompt]);
 
   // Get current date info
   const dateInfo = useMemo(() => {
@@ -127,15 +175,6 @@ export default function Home() {
     return "Good Evening";
   }, []);
 
-  // Get a consistent daily question
-  const dailyQuestion = useMemo(() => {
-    const dayOfYear = Math.floor(
-      (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) /
-        86400000
-    );
-    return dailyQuestions[dayOfYear % dailyQuestions.length];
-  }, []);
-
   const firstName = user?.firstName || "there";
 
   const formatTime = (isoString: string) => {
@@ -154,6 +193,13 @@ export default function Home() {
           { paddingTop: insets.top + 20, paddingBottom: 120 },
         ]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#F97316"
+          />
+        }
       >
         {/* Header Section */}
         <View style={styles.header}>
@@ -224,23 +270,39 @@ export default function Home() {
             <Ionicons name="sparkles" size={16} color="#F97316" />
           </View>
 
-          <Text style={styles.questionText}>{dailyQuestion}</Text>
+          {loadingPrompt ? (
+            <View style={{ padding: 20, alignItems: "center" }}>
+              <ActivityIndicator color="#F97316" />
+            </View>
+          ) : (
+            <>
+              <Text style={styles.questionText}>
+                {dailyPrompt?.question || "Reflect on your day..."}
+              </Text>
 
-          <Text style={styles.questionDescription}>
-            Reflecting on small victories builds momentum for bigger
-            achievements. Take a moment to appreciate yourself.
-          </Text>
+              <Text style={styles.questionDescription}>
+                {dailyPrompt?.description ||
+                  "Take a moment to appreciate the journey."}
+              </Text>
 
-          <TouchableOpacity
-            style={styles.writeButton}
-            activeOpacity={0.9}
-            onPress={() => {
-              router.push("/(protected)/new-entry");
-            }}
-          >
-            <Text style={styles.writeButtonText}>Write Entry</Text>
-            <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.writeButton}
+                activeOpacity={0.9}
+                onPress={() => {
+                  router.push({
+                    pathname: "/(protected)/new-entry",
+                    params: {
+                      title: dailyPrompt?.question,
+                      type: "prompt",
+                    },
+                  });
+                }}
+              >
+                <Text style={styles.writeButtonText}>Write Entry</Text>
+                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         {/* Recent Journals Section */}

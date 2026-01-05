@@ -216,24 +216,82 @@ export const journalService = {
   },
 
   /**
+   * Get entries within a specific date range
+   */
+  async getEntriesInRange(
+    userId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<JournalEntry[]> {
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    const { data, error } = await supabase
+      .from("journal_entries")
+      .select("*")
+      .eq("user_id", userId)
+      .gte("created_at", start.toISOString())
+      .lte("created_at", end.toISOString())
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching entries in range:", error);
+      throw error;
+    }
+
+    return data || [];
+  },
+
+  /**
+   * Get entries for the last 7 days from endDate (for AI introspection)
+   */
+  async getWeeklyEntries(
+    userId: string,
+    endDate: Date = new Date()
+  ): Promise<JournalEntry[]> {
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - 7);
+    startDate.setHours(0, 0, 0, 0);
+
+    const { data, error } = await supabase
+      .from("journal_entries")
+      .select("*")
+      .eq("user_id", userId)
+      .gte("created_at", startDate.toISOString())
+      .lte("created_at", endDate.toISOString())
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching weekly entries:", error);
+      throw error;
+    }
+
+    return data || [];
+  },
+
+  /**
    * Get mood statistics for a user
    */
   async getMoodStats(
     userId: string,
-    days: number = 7
+    days: number = 7,
+    endDate: Date = new Date()
   ): Promise<{
     averageMood: number;
     totalEntries: number;
     moodDistribution: Record<number, number>;
   }> {
-    const startDate = new Date();
+    const startDate = new Date(endDate);
     startDate.setDate(startDate.getDate() - days);
 
     const { data, error } = await supabase
       .from("journal_entries")
       .select("mood")
       .eq("user_id", userId)
-      .gte("created_at", startDate.toISOString());
+      .gte("created_at", startDate.toISOString())
+      .lte("created_at", endDate.toISOString());
 
     if (error) {
       console.error("Error fetching mood stats:", error);
@@ -270,6 +328,33 @@ export const journalService = {
       totalEntries,
       moodDistribution,
     };
+  },
+
+  /**
+   * Get created_at dates for entries in the last N days from endDate
+   */
+  async getEntryDates(
+    userId: string,
+    days: number = 35,
+    endDate: Date = new Date()
+  ): Promise<string[]> {
+    const startDate = new Date(endDate);
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    const { data, error } = await supabase
+      .from("journal_entries")
+      .select("created_at")
+      .eq("user_id", userId)
+      .gte("created_at", startDate.toISOString())
+      .lte("created_at", endDate.toISOString());
+
+    if (error) {
+      console.error("Error fetching entry dates:", error);
+      throw error;
+    }
+
+    return (data || []).map((e) => e.created_at);
   },
 
   /**

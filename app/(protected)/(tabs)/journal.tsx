@@ -73,7 +73,6 @@ export default function Journal() {
   // Refetch when screen comes into focus, category changes, or date changes
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
       fetchEntries();
     }, [fetchEntries])
   );
@@ -145,6 +144,7 @@ export default function Journal() {
   };
 
   const handleDone = () => {
+    setLoading(true);
     setSelectedDate(tempSelectedDate);
     setShowDatePicker(false);
   };
@@ -195,7 +195,10 @@ export default function Journal() {
                   {dateInfo.month} {dateInfo.date}
                 </Text>
                 <TouchableOpacity
-                  onPress={() => setSelectedDate(null)}
+                  onPress={() => {
+                    setLoading(true);
+                    setSelectedDate(null);
+                  }}
                   style={{ marginLeft: 6, padding: 2 }}
                   hitSlop={8}
                 >
@@ -267,7 +270,10 @@ export default function Journal() {
             return (
               <TouchableOpacity
                 key={category.id}
-                onPress={() => setActiveCategory(category.id)}
+                onPress={() => {
+                  setLoading(true);
+                  setActiveCategory(category.id);
+                }}
                 style={[
                   styles.categoryPill,
                   isActive && styles.categoryPillActive,

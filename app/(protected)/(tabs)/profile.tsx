@@ -244,7 +244,7 @@ export default function Profile() {
 
             <TouchableOpacity
               style={styles.menuItem}
-              onPress={() => handleMenuPress("Change password")}
+              onPress={() => router.push("/(protected)/change-password")}
               activeOpacity={0.7}
             >
               <View style={[styles.menuIcon, styles.menuIconYellow]}>

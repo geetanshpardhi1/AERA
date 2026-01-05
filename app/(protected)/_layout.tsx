@@ -25,11 +25,18 @@ export default function ProtectedLayout() {
       <Stack.Screen
         name="entry-detail"
         options={{
-          animation: "slide_from_right",
+          presentation: "modal",
+          headerShown: false,
         }}
       />
       <Stack.Screen
         name="edit-profile"
+        options={{
+          animation: "slide_from_right",
+        }}
+      />
+      <Stack.Screen
+        name="change-password"
         options={{
           animation: "slide_from_right",
         }}

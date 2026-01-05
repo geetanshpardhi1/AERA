@@ -126,7 +126,7 @@ export default function EntryDetail() {
             style={styles.backButton}
             activeOpacity={0.7}
           >
-            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+            <Ionicons name="close" size={24} color="#FFFFFF" />
           </TouchableOpacity>
 
           <Text style={styles.headerDate}>{formatDate(entry.created_at)}</Text>
