@@ -1,9 +1,12 @@
 import { useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -36,15 +39,28 @@ export default function Journal() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [tempSelectedDate, setTempSelectedDate] = useState<Date>(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // Fetch entries
   const fetchEntries = useCallback(async () => {
     if (!user) return;
     try {
-      const data =
-        activeCategory === "all"
-          ? await journalService.getAll(user.id)
-          : await journalService.getByCategory(user.id, activeCategory);
+      let data: JournalEntry[] = [];
+
+      if (selectedDate) {
+        data = await journalService.getByDate(user.id, selectedDate);
+        // Filter by category in memory if needed
+        if (activeCategory !== "all") {
+          data = data.filter((e) => e.category === activeCategory);
+        }
+      } else {
+        data =
+          activeCategory === "all"
+            ? await journalService.getAll(user.id)
+            : await journalService.getByCategory(user.id, activeCategory);
+      }
       setEntries(data);
     } catch (error) {
       console.error("Error fetching entries:", error);
@@ -52,9 +68,9 @@ export default function Journal() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, activeCategory]);
+  }, [user, activeCategory, selectedDate]);
 
-  // Refetch when screen comes into focus of category changes
+  // Refetch when screen comes into focus, category changes, or date changes
   useFocusEffect(
     useCallback(() => {
       setLoading(true);
@@ -67,9 +83,9 @@ export default function Journal() {
     fetchEntries();
   }, [fetchEntries]);
 
-  // Get current date
+  // Get current date or selected date string
   const dateInfo = useMemo(() => {
-    const now = new Date();
+    const targetDate = selectedDate || new Date();
     const months = [
       "JAN",
       "FEB",
@@ -85,10 +101,12 @@ export default function Journal() {
       "DEC",
     ];
     return {
-      month: months[now.getMonth()],
-      date: now.getDate(),
+      month: months[targetDate.getMonth()],
+      date: targetDate.getDate(),
+      fullYear: targetDate.getFullYear(),
+      isToday: new Date().toDateString() === targetDate.toDateString(),
     };
-  }, []);
+  }, [selectedDate]);
 
   // Filter categories to display
   const displayCategories = useMemo(
@@ -98,10 +116,37 @@ export default function Journal() {
 
   // Format time helper
   const formatTime = (isoString: string) => {
-    return new Date(isoString).toLocaleTimeString([], {
+    const date = new Date(isoString);
+    const time = date.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     });
+    const day = date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    return `${day} • ${time}`;
+  };
+
+  const openDatePicker = () => {
+    setTempSelectedDate(selectedDate || new Date());
+    setShowDatePicker(true);
+  };
+
+  const handleDateChange = (event: any, date?: Date) => {
+    if (Platform.OS === "android") {
+      setShowDatePicker(false);
+      if (event.type === "set" && date) {
+        setSelectedDate(date);
+      }
+    } else {
+      if (date) setTempSelectedDate(date);
+    }
+  };
+
+  const handleDone = () => {
+    setSelectedDate(tempSelectedDate);
+    setShowDatePicker(false);
   };
 
   return (
@@ -124,13 +169,91 @@ export default function Journal() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Your Journals</Text>
-          <View style={styles.dateBadge}>
-            <Ionicons name="calendar-outline" size={14} color="#9CA3AF" />
-            <Text style={styles.dateText}>
-              {dateInfo.month} {dateInfo.date}
-            </Text>
-          </View>
+          <TouchableOpacity
+            style={[
+              styles.dateBadge,
+              selectedDate && {
+                borderColor: "#F97316",
+                backgroundColor: "#F97316" + "20",
+              },
+              !selectedDate && {
+                paddingHorizontal: 10,
+                paddingVertical: 10,
+                borderRadius: 20, // Make it circular/square-ish
+                aspectRatio: 1,
+                justifyContent: "center",
+                alignItems: "center",
+              },
+            ]}
+            onPress={openDatePicker}
+            activeOpacity={0.7}
+          >
+            {selectedDate ? (
+              <>
+                <Ionicons name="calendar" size={14} color="#F97316" />
+                <Text style={[styles.dateText, { color: "#F97316" }]}>
+                  {dateInfo.month} {dateInfo.date}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setSelectedDate(null)}
+                  style={{ marginLeft: 6, padding: 2 }}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close-circle" size={16} color="#F97316" />
+                </TouchableOpacity>
+              </>
+            ) : (
+              <Ionicons name="calendar-outline" size={22} color="#9CA3AF" />
+            )}
+          </TouchableOpacity>
         </View>
+
+        {/* Android Date Picker */}
+        {showDatePicker && Platform.OS === "android" && (
+          <DateTimePicker
+            value={selectedDate || new Date()}
+            mode="date"
+            display="default"
+            onChange={handleDateChange}
+            maximumDate={new Date()}
+          />
+        )}
+
+        {/* iOS Date Picker Modal */}
+        {Platform.OS === "ios" && (
+          <Modal
+            visible={showDatePicker}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowDatePicker(false)}
+          >
+            <TouchableOpacity
+              style={styles.modalOverlay}
+              activeOpacity={1}
+              onPress={() => setShowDatePicker(false)}
+            >
+              <TouchableOpacity activeOpacity={1} style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Select Date</Text>
+                  <TouchableOpacity onPress={handleDone} hitSlop={10}>
+                    <Text style={styles.modalDoneText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={tempSelectedDate}
+                  mode="date"
+                  display="inline"
+                  onChange={handleDateChange}
+                  maximumDate={new Date()}
+                  themeVariant="dark"
+                  style={{ height: 320, width: "100%" }}
+                />
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
+        )}
+
+        {/* iOS Date Picker Modal Wrapper could go here if using inline/spinner style in a modal, but standard is fine mostly */}
 
         {/* Category Pills */}
         <ScrollView
@@ -176,7 +299,7 @@ export default function Journal() {
             <View style={{ alignItems: "center", marginTop: 40 }}>
               <Ionicons name="journal-outline" size={48} color="#2A2A2A" />
               <Text style={{ color: "#6B7280", marginTop: 16 }}>
-                No entries found
+                No entries found {selectedDate ? "for this date" : ""}
               </Text>
             </View>
           ) : (
@@ -393,5 +516,43 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 12,
     elevation: 10,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#1A1A1A",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: 40,
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    width: "100%",
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 20,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+    paddingHorizontal: 10,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  modalDoneText: {
+    color: "#F97316",
+    fontWeight: "700",
+    fontSize: 16,
   },
 });

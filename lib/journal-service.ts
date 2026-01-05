@@ -146,6 +146,31 @@ export const journalService = {
   },
 
   /**
+   * Get entries by date (UTC date comparison)
+   */
+  async getByDate(userId: string, date: Date): Promise<JournalEntry[]> {
+    const startDate = new Date(date);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(date);
+    endDate.setHours(23, 59, 59, 999);
+
+    const { data, error } = await supabase
+      .from("journal_entries")
+      .select("*")
+      .eq("user_id", userId)
+      .gte("created_at", startDate.toISOString())
+      .lte("created_at", endDate.toISOString())
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching entries by date:", error);
+      throw error;
+    }
+
+    return data || [];
+  },
+
+  /**
    * Update an entry
    */
   async update(

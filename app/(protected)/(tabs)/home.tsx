@@ -1,9 +1,8 @@
 import { useUser } from "@clerk/clerk-expo";
 import { Pacifico_400Regular, useFonts } from "@expo-google-fonts/pacifico";
 import { Ionicons } from "@expo/vector-icons";
-import { Image } from "expo-image";
-import { useRouter } from "expo-router";
-import { useMemo } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
 import {
   Dimensions,
   ScrollView,
@@ -13,28 +12,11 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { JournalEntry, journalService } from "../../../lib/journal-service";
+
+// ... (existing code)
 
 const { width } = Dimensions.get("window");
-
-// Sample journal entries
-const recentJournals = [
-  {
-    id: 1,
-    title: "My Morning Walk",
-    time: "10:30 AM",
-    preview: "The air was crisp and the birds...",
-    image:
-      "https://images.unsplash.com/photo-1511497584788-876760111969?w=200&h=200&fit=crop",
-  },
-  {
-    id: 2,
-    title: "Gratitude List",
-    time: "8:15 AM",
-    preview: "Today I'm grateful for the small moments...",
-    image:
-      "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=200&h=200&fit=crop",
-  },
-];
 
 // Daily questions for reflection
 const dailyQuestions = [
@@ -50,10 +32,32 @@ export default function Home() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
+  const [recentEntries, setRecentEntries] = useState<JournalEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
   // Load Pacifico font
   const [fontsLoaded] = useFonts({
     Pacifico_400Regular,
   });
+
+  // Fetch recent entries
+  useFocusEffect(
+    useCallback(() => {
+      const fetchRecent = async () => {
+        if (!user) return;
+        try {
+          const data = await journalService.getRecent(user.id, 3);
+          setRecentEntries(data);
+        } catch (error) {
+          console.error("Error fetching recent entries:", error);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchRecent();
+    }, [user])
+  );
 
   // Get current date info
   const dateInfo = useMemo(() => {
@@ -134,6 +138,13 @@ export default function Home() {
 
   const firstName = user?.firstName || "there";
 
+  const formatTime = (isoString: string) => {
+    return new Date(isoString).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -146,15 +157,6 @@ export default function Home() {
       >
         {/* Header Section */}
         <View style={styles.header}>
-          {/* App Icon */}
-          {/* <View style={styles.iconContainer}>
-            <Image
-              source={require("../../../assets/icons/splash-icon-light.png")}
-              style={styles.appIcon}
-              contentFit="contain"
-            />
-          </View> */}
-
           {/* Date */}
           <Text style={styles.dateText}>
             {dateInfo.dayName}, {dateInfo.monthName} {dateInfo.date}
@@ -245,38 +247,48 @@ export default function Home() {
         <View style={styles.recentSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Journals</Text>
-            <TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push("/(protected)/(tabs)/journal")}
+            >
               <Text style={styles.viewAllText}>View all</Text>
             </TouchableOpacity>
           </View>
 
-          {recentJournals.map((journal) => (
-            <TouchableOpacity
-              key={journal.id}
-              style={styles.journalCard}
-              activeOpacity={0.8}
-              onPress={() =>
-                router.push(`/(protected)/entry-detail?id=${journal.id}`)
-              }
-            >
-              <Image
-                source={{ uri: journal.image }}
-                style={styles.journalImage}
-                contentFit="cover"
-                transition={200}
-              />
-              <View style={styles.journalContent}>
-                <View style={styles.journalTitleRow}>
-                  <Text style={styles.journalTitle}>{journal.title}</Text>
-                  <Text style={styles.journalTime}>{journal.time}</Text>
+          {recentEntries.length === 0 && !loading ? (
+            <View style={styles.emptyRecent}>
+              <Text style={styles.emptyText}>
+                No journals yet. Start writing!
+              </Text>
+            </View>
+          ) : (
+            recentEntries.map((journal) => (
+              <TouchableOpacity
+                key={journal.id}
+                style={styles.journalCard}
+                activeOpacity={0.8}
+                onPress={() =>
+                  router.push(`/(protected)/entry-detail?id=${journal.id}`)
+                }
+              >
+                <View style={styles.emojiBox}>
+                  <Text style={{ fontSize: 24 }}>{journal.mood_emoji}</Text>
                 </View>
-                <Text style={styles.journalPreview} numberOfLines={1}>
-                  {journal.preview}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#6B7280" />
-            </TouchableOpacity>
-          ))}
+
+                <View style={styles.journalContent}>
+                  <View style={styles.journalTitleRow}>
+                    <Text style={styles.journalTitle}>{journal.title}</Text>
+                    <Text style={styles.journalTime}>
+                      {formatTime(journal.created_at)}
+                    </Text>
+                  </View>
+                  <Text style={styles.journalPreview} numberOfLines={1}>
+                    {journal.content}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+              </TouchableOpacity>
+            ))
+          )}
         </View>
       </ScrollView>
     </View>
@@ -488,5 +500,22 @@ const styles = StyleSheet.create({
   journalPreview: {
     fontSize: 14,
     color: "#9CA3AF",
+  },
+  emptyRecent: {
+    alignItems: "center",
+    paddingVertical: 20,
+  },
+  emptyText: {
+    color: "#6B7280",
+    fontSize: 14,
+  },
+  emojiBox: {
+    width: 50,
+    height: 50,
+    borderRadius: 12,
+    backgroundColor: "#2A2A2A",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 14,
   },
 });
