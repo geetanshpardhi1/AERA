@@ -1,7 +1,10 @@
+import { useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -12,27 +15,55 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-// Mood options with emojis
-const moodOptions = [
-  { id: 1, emoji: "😣", label: "Very Bad" },
-  { id: 2, emoji: "😐", label: "Bad" },
-  { id: 3, emoji: "😐", label: "Neutral" },
-  { id: 4, emoji: "🙂", label: "Good" },
-  { id: 5, emoji: "😄", label: "Great" },
-];
+import { CATEGORIES, journalService, MOODS } from "../../lib/journal-service";
 
 export default function NewEntry() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useUser();
+  const { id } = useLocalSearchParams();
+  const isEditing = !!id;
 
   const [selectedMood, setSelectedMood] = useState(3); // Default to neutral
+  const [selectedCategory, setSelectedCategory] = useState("personal");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(false);
+
+  // Fetch entry data if editing
+  useEffect(() => {
+    if (!isEditing || !user) return;
+
+    const fetchEntry = async () => {
+      setInitialLoading(true);
+      try {
+        const entry = await journalService.getById(user.id, id as string);
+        if (entry) {
+          setTitle(entry.title);
+          setContent(entry.content || "");
+          setSelectedMood(entry.mood);
+          setSelectedCategory(entry.category);
+        } else {
+          Alert.alert("Error", "Entry not found");
+          router.back();
+        }
+      } catch (error) {
+        console.error("Error fetching entry for edit:", error);
+        Alert.alert("Error", "Failed to load entry");
+        router.back();
+      } finally {
+        setInitialLoading(false);
+      }
+    };
+
+    fetchEntry();
+  }, [id, user]);
 
   // Get current date info
   const dateInfo = useMemo(() => {
     const now = new Date();
+    // ... (existing date logic remains same)
     const days = [
       "Sunday",
       "Monday",
@@ -68,11 +99,63 @@ export default function NewEntry() {
     router.back();
   };
 
-  const handleSave = () => {
-    // TODO: Save entry to database
-    console.log("Saving entry:", { mood: selectedMood, title, content });
-    router.back();
+  const handleSave = async () => {
+    if (!user) return;
+
+    if (!title.trim() && !content.trim()) {
+      Alert.alert(
+        "Empty Entry",
+        "Please add a title or some content to your entry."
+      );
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const moodData = MOODS.find((m) => m.value === selectedMood) || MOODS[2];
+
+      if (isEditing) {
+        await journalService.update(user.id, id as string, {
+          title: title.trim() || "Untitled Entry",
+          content: content.trim(),
+          mood: selectedMood,
+          mood_emoji: moodData.emoji,
+          mood_label: moodData.label,
+          category: selectedCategory,
+        });
+      } else {
+        await journalService.create(user.id, {
+          title: title.trim() || "Untitled Entry",
+          content: content.trim(),
+          mood: selectedMood,
+          mood_emoji: moodData.emoji,
+          mood_label: moodData.label,
+          category: selectedCategory,
+        });
+      }
+
+      // Navigate back
+      router.back();
+    } catch (error: any) {
+      console.error("Error saving entry:", error);
+      Alert.alert("Error", "Failed to save journal entry. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
+
+  if (initialLoading) {
+    return (
+      <View
+        style={[
+          styles.container,
+          { justifyContent: "center", alignItems: "center" },
+        ]}
+      >
+        <ActivityIndicator size="large" color="#F97316" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -102,7 +185,9 @@ export default function NewEntry() {
           <View style={styles.dateHeader}>
             <View style={styles.todayIndicator}>
               <View style={styles.todayLine} />
-              <Text style={styles.todayText}>TODAY</Text>
+              <Text style={styles.todayText}>
+                {isEditing ? "EDIT ENTRY" : "TODAY"}
+              </Text>
             </View>
             <Text style={styles.dateText}>
               {dateInfo.dayName}, {dateInfo.monthName} {dateInfo.date}
@@ -111,15 +196,15 @@ export default function NewEntry() {
 
           {/* Mood Selection */}
           <View style={styles.moodSection}>
-            <Text style={styles.moodLabel}>How are you feeling?</Text>
+            <Text style={styles.label}>How are you feeling?</Text>
             <View style={styles.moodContainer}>
-              {moodOptions.map((mood) => (
+              {MOODS.map((mood) => (
                 <TouchableOpacity
-                  key={mood.id}
-                  onPress={() => setSelectedMood(mood.id)}
+                  key={mood.value}
+                  onPress={() => setSelectedMood(mood.value)}
                   style={[
                     styles.moodButton,
-                    selectedMood === mood.id && styles.moodButtonSelected,
+                    selectedMood === mood.value && styles.moodButtonSelected,
                   ]}
                   activeOpacity={0.8}
                 >
@@ -127,6 +212,45 @@ export default function NewEntry() {
                 </TouchableOpacity>
               ))}
             </View>
+          </View>
+
+          {/* Category Selection */}
+          <View style={styles.categorySection}>
+            <Text style={styles.label}>Category</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoryContainer}
+            >
+              {CATEGORIES.map((cat) => (
+                <TouchableOpacity
+                  key={cat.id}
+                  onPress={() => setSelectedCategory(cat.id)}
+                  style={[
+                    styles.categoryButton,
+                    selectedCategory === cat.id &&
+                      styles.categoryButtonSelected,
+                    selectedCategory === cat.id && {
+                      backgroundColor: cat.color + "20",
+                      borderColor: cat.color,
+                    },
+                  ]}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.categoryText,
+                      selectedCategory === cat.id && {
+                        color: cat.color,
+                        fontWeight: "700",
+                      },
+                    ]}
+                  >
+                    {cat.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
 
           {/* Title Input */}
@@ -138,6 +262,7 @@ export default function NewEntry() {
               value={title}
               onChangeText={setTitle}
               maxLength={100}
+              editable={!loading}
             />
             <Ionicons name="pencil" size={18} color="#6B7280" />
           </View>
@@ -152,6 +277,7 @@ export default function NewEntry() {
               onChangeText={setContent}
               multiline
               textAlignVertical="top"
+              editable={!loading}
             />
           </View>
         </ScrollView>
@@ -164,17 +290,27 @@ export default function NewEntry() {
             style={styles.cancelButton}
             onPress={handleCancel}
             activeOpacity={0.8}
+            disabled={loading}
           >
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.saveButton}
+            style={[styles.saveButton, loading && { opacity: 0.7 }]}
             onPress={handleSave}
             activeOpacity={0.9}
+            disabled={loading}
           >
-            <Text style={styles.saveButtonText}>Save Entry</Text>
-            <Ionicons name="arrow-up" size={18} color="#FFFFFF" />
+            {loading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Text style={styles.saveButtonText}>
+                  {isEditing ? "Update Entry" : "Save Entry"}
+                </Text>
+                <Ionicons name="arrow-up" size={18} color="#FFFFFF" />
+              </>
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -232,7 +368,7 @@ const styles = StyleSheet.create({
   moodSection: {
     marginBottom: 32,
   },
-  moodLabel: {
+  label: {
     fontSize: 14,
     color: "#9CA3AF",
     marginBottom: 16,
@@ -243,6 +379,28 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 8,
     justifyContent: "space-between",
+  },
+  categorySection: {
+    marginBottom: 32,
+  },
+  categoryContainer: {
+    gap: 12,
+  },
+  categoryButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: "#1A1A1A",
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+  },
+  categoryButtonSelected: {
+    borderWidth: 1,
+  },
+  categoryText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#9CA3AF",
   },
   moodButton: {
     width: 52,

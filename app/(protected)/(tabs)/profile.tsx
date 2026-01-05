@@ -1,10 +1,14 @@
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
+  ActionSheetIOS,
+  ActivityIndicator,
   Alert,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -21,6 +25,7 @@ export default function Profile() {
   const { signOut } = useAuth();
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [imageLoading, setImageLoading] = useState(false);
 
   const handleLogout = async () => {
     Alert.alert("Log Out", "Are you sure you want to log out?", [
@@ -43,6 +48,128 @@ export default function Profile() {
   const handleMenuPress = (item: string) => {
     // TODO: Navigate to respective screens
     Alert.alert("Coming Soon", `${item} screen coming soon!`);
+  };
+
+  // Handle avatar edit - show action sheet
+  const handleAvatarEdit = () => {
+    const options = user?.imageUrl
+      ? ["Change Photo", "Remove Photo", "Cancel"]
+      : ["Choose Photo", "Cancel"];
+    const destructiveIndex = user?.imageUrl ? 1 : undefined;
+    const cancelIndex = user?.imageUrl ? 2 : 1;
+
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          destructiveButtonIndex: destructiveIndex,
+          cancelButtonIndex: cancelIndex,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) {
+            pickImage();
+          } else if (buttonIndex === 1 && user?.imageUrl) {
+            removePhoto();
+          }
+        }
+      );
+    } else {
+      // Android fallback with Alert
+      Alert.alert(
+        "Profile Photo",
+        "Choose an option",
+        user?.imageUrl
+          ? [
+              { text: "Change Photo", onPress: pickImage },
+              {
+                text: "Remove Photo",
+                onPress: removePhoto,
+                style: "destructive",
+              },
+              { text: "Cancel", style: "cancel" },
+            ]
+          : [
+              { text: "Choose Photo", onPress: pickImage },
+              { text: "Cancel", style: "cancel" },
+            ]
+      );
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "Please allow access to your photo library to change your profile picture."
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await uploadProfileImage(result.assets[0]);
+      }
+    } catch (error) {
+      console.error("Error picking image:", error);
+      Alert.alert("Error", "Failed to pick image. Please try again.");
+    }
+  };
+
+  const uploadProfileImage = async (asset: ImagePicker.ImagePickerAsset) => {
+    if (!user) return;
+
+    setImageLoading(true);
+    try {
+      const base64Image = `data:image/jpeg;base64,${asset.base64}`;
+      await user.setProfileImage({ file: base64Image });
+      Alert.alert("Success", "Profile picture updated!");
+    } catch (error: any) {
+      console.error("Error uploading image:", error);
+      Alert.alert(
+        "Error",
+        error.errors?.[0]?.message || "Failed to update profile picture."
+      );
+    } finally {
+      setImageLoading(false);
+    }
+  };
+
+  const removePhoto = async () => {
+    if (!user) return;
+
+    Alert.alert(
+      "Remove Photo",
+      "Are you sure you want to remove your profile photo?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            setImageLoading(true);
+            try {
+              await user.setProfileImage({ file: null });
+              Alert.alert("Success", "Profile picture removed!");
+            } catch (error: any) {
+              console.error("Error removing image:", error);
+              Alert.alert("Error", "Failed to remove profile picture.");
+            } finally {
+              setImageLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   // Get user initials for avatar fallback
@@ -73,14 +200,22 @@ export default function Profile() {
         {/* Profile Avatar Section */}
         <View style={styles.avatarSection}>
           <View style={styles.avatarContainer}>
-            {user?.imageUrl ? (
+            {imageLoading ? (
+              <View style={styles.avatarLoading}>
+                <ActivityIndicator size="large" color="#F97316" />
+              </View>
+            ) : user?.imageUrl ? (
               <Image source={{ uri: user.imageUrl }} style={styles.avatar} />
             ) : (
               <View style={styles.avatarFallback}>
                 <Text style={styles.avatarInitials}>{getInitials()}</Text>
               </View>
             )}
-            <TouchableOpacity style={styles.editAvatarButton}>
+            <TouchableOpacity
+              style={styles.editAvatarButton}
+              onPress={handleAvatarEdit}
+              disabled={imageLoading}
+            >
               <Ionicons name="pencil" size={14} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
@@ -95,7 +230,7 @@ export default function Profile() {
           <View style={styles.sectionCard}>
             <TouchableOpacity
               style={styles.menuItem}
-              onPress={() => handleMenuPress("Edit profile")}
+              onPress={() => router.push("/(protected)/edit-profile")}
               activeOpacity={0.7}
             >
               <View style={[styles.menuIcon, styles.menuIconBlue]}>
@@ -227,6 +362,16 @@ const styles = StyleSheet.create({
     borderColor: "#F97316",
   },
   avatarFallback: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: "#F97316",
+    backgroundColor: "#1A1A1A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarLoading: {
     width: 100,
     height: 100,
     borderRadius: 50,

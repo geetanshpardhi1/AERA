@@ -1,7 +1,10 @@
+import { useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,71 +12,60 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  CATEGORIES,
+  JournalEntry,
+  journalService,
+} from "../../../lib/journal-service";
 
-// Category configuration with colors
-const categories = [
-  { id: "all", label: "All", color: "#F97316" },
-  { id: "favorites", label: "Favorites", color: "#6B7280" },
-  { id: "wellness", label: "Wellness", color: "#6B7280" },
-  { id: "work", label: "Work", color: "#6B7280" },
-];
-
-// Category badge colors
+// Category badge colors (reused from before, updated to match standard ones if needed)
 const categoryBadgeColors: Record<string, { bg: string; text: string }> = {
   morning: { bg: "rgba(251, 191, 36, 0.15)", text: "#FBBF24" },
   work: { bg: "rgba(59, 130, 246, 0.15)", text: "#3B82F6" },
   wellness: { bg: "rgba(34, 197, 94, 0.15)", text: "#22C55E" },
   personal: { bg: "rgba(168, 85, 247, 0.15)", text: "#A855F7" },
+  evening: { bg: "rgba(99, 102, 241, 0.15)", text: "#6366F1" },
 };
-
-// Sample journal entries
-const journalEntries = [
-  {
-    id: 1,
-    category: "morning",
-    title: "Morning Reflection",
-    time: "9:30 AM",
-    preview:
-      "Woke up feeling energized today. The sun was shining right through th...",
-    emoji: "☀️",
-    emojiColor: "#FBBF24",
-  },
-  {
-    id: 2,
-    category: "work",
-    title: "Project Breakthrough",
-    time: "2:15 PM",
-    preview:
-      "Finally solved that bug that was bothering me all week. It turns out it...",
-    emoji: "🚀",
-    emojiColor: "#3B82F6",
-  },
-  {
-    id: 3,
-    category: "wellness",
-    title: "Evening Walk",
-    time: "6:00 PM",
-    preview:
-      "Took a walk by the river. It was very peaceful and quiet. Saw a family of...",
-    emoji: "🌿",
-    emojiColor: "#22C55E",
-  },
-  {
-    id: 4,
-    category: "personal",
-    title: "Late Night Thoughts",
-    time: "11:45 PM",
-    preview:
-      "Thinking about the future and where I want to be in 5 years. It's a bit scary...",
-    emoji: "🌙",
-    emojiColor: "#A855F7",
-  },
-];
 
 export default function Journal() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useUser();
+
   const [activeCategory, setActiveCategory] = useState("all");
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Fetch entries
+  const fetchEntries = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data =
+        activeCategory === "all"
+          ? await journalService.getAll(user.id)
+          : await journalService.getByCategory(user.id, activeCategory);
+      setEntries(data);
+    } catch (error) {
+      console.error("Error fetching entries:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user, activeCategory]);
+
+  // Refetch when screen comes into focus of category changes
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      fetchEntries();
+    }, [fetchEntries])
+  );
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchEntries();
+  }, [fetchEntries]);
 
   // Get current date
   const dateInfo = useMemo(() => {
@@ -98,16 +90,19 @@ export default function Journal() {
     };
   }, []);
 
-  // Filter entries based on active category
-  const filteredEntries = useMemo(() => {
-    if (activeCategory === "all") return journalEntries;
-    if (activeCategory === "favorites") return journalEntries.slice(0, 2); // Mock favorites
-    return journalEntries.filter(
-      (entry) =>
-        entry.category === activeCategory ||
-        (activeCategory === "wellness" && entry.category === "wellness")
-    );
-  }, [activeCategory]);
+  // Filter categories to display
+  const displayCategories = useMemo(
+    () => [{ id: "all", label: "All", color: "#F97316" }, ...CATEGORIES],
+    []
+  );
+
+  // Format time helper
+  const formatTime = (isoString: string) => {
+    return new Date(isoString).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
 
   return (
     <View style={styles.container}>
@@ -118,6 +113,13 @@ export default function Journal() {
           { paddingTop: insets.top + 20, paddingBottom: 120 },
         ]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#F97316"
+          />
+        }
       >
         {/* Header */}
         <View style={styles.header}>
@@ -137,7 +139,7 @@ export default function Journal() {
           style={styles.categoriesContainer}
           contentContainerStyle={styles.categoriesContent}
         >
-          {categories.map((category) => {
+          {displayCategories.map((category) => {
             const isActive = activeCategory === category.id;
             return (
               <TouchableOpacity
@@ -164,50 +166,69 @@ export default function Journal() {
 
         {/* Journal Entries */}
         <View style={styles.entriesContainer}>
-          {filteredEntries.map((entry) => {
-            const badgeColors = categoryBadgeColors[entry.category];
-            return (
-              <TouchableOpacity
-                key={entry.id}
-                style={styles.entryCard}
-                activeOpacity={0.8}
-                onPress={() =>
-                  router.push(`/(protected)/entry-detail?id=${entry.id}`)
-                }
-              >
-                <View style={styles.entryHeader}>
-                  <View
-                    style={[
-                      styles.categoryBadge,
-                      { backgroundColor: badgeColors.bg },
-                    ]}
-                  >
-                    <Text
+          {loading && !refreshing ? (
+            <ActivityIndicator
+              size="large"
+              color="#F97316"
+              style={{ marginTop: 40 }}
+            />
+          ) : entries.length === 0 ? (
+            <View style={{ alignItems: "center", marginTop: 40 }}>
+              <Ionicons name="journal-outline" size={48} color="#2A2A2A" />
+              <Text style={{ color: "#6B7280", marginTop: 16 }}>
+                No entries found
+              </Text>
+            </View>
+          ) : (
+            entries.map((entry) => {
+              const badgeColors =
+                categoryBadgeColors[entry.category] ||
+                categoryBadgeColors.personal;
+              return (
+                <TouchableOpacity
+                  key={entry.id}
+                  style={styles.entryCard}
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    router.push(`/(protected)/entry-detail?id=${entry.id}`)
+                  }
+                >
+                  <View style={styles.entryHeader}>
+                    <View
                       style={[
-                        styles.categoryBadgeText,
-                        { color: badgeColors.text },
+                        styles.categoryBadge,
+                        { backgroundColor: badgeColors.bg },
                       ]}
                     >
-                      {entry.category.toUpperCase()}
+                      <Text
+                        style={[
+                          styles.categoryBadgeText,
+                          { color: badgeColors.text },
+                        ]}
+                      >
+                        {entry.category.toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={styles.entryTime}>
+                      {formatTime(entry.created_at)}
                     </Text>
                   </View>
-                  <Text style={styles.entryTime}>{entry.time}</Text>
-                </View>
 
-                <View style={styles.entryContent}>
-                  <View style={styles.entryTextContent}>
-                    <Text style={styles.entryTitle}>{entry.title}</Text>
-                    <Text style={styles.entryPreview} numberOfLines={2}>
-                      {entry.preview}
-                    </Text>
+                  <View style={styles.entryContent}>
+                    <View style={styles.entryTextContent}>
+                      <Text style={styles.entryTitle}>{entry.title}</Text>
+                      <Text style={styles.entryPreview} numberOfLines={2}>
+                        {entry.content}
+                      </Text>
+                    </View>
+                    <View style={styles.emojiContainer}>
+                      <Text style={styles.emoji}>{entry.mood_emoji}</Text>
+                    </View>
                   </View>
-                  <View style={styles.emojiContainer}>
-                    <Text style={styles.emoji}>{entry.emoji}</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
+                </TouchableOpacity>
+              );
+            })
+          )}
         </View>
 
         {/* End of List */}

@@ -1,6 +1,9 @@
+import { useUser } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -9,61 +12,35 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-// Mock data for entries - in a real app this would come from a database
-const mockEntries: Record<string, any> = {
-  "1": {
-    id: 1,
-    date: "October 24, 2023",
-    mood: "Happy",
-    moodEmoji: "😊",
-    time: "10:42 AM",
-    title: "Productive Morning at the Cafe",
-    content: `Today I finally managed to finish the draft for the new project. The coffee was great and the atmosphere really helped me focus. I spent about three hours working non-stop and felt a real sense of flow.
-
-Afterwards, I took a short walk in the park to clear my head. The autumn leaves are starting to fall, creating a beautiful orange carpet on the grass. It reminded me to slow down and appreciate the small transitions in life.`,
-  },
-  "2": {
-    id: 2,
-    date: "October 24, 2023",
-    mood: "Calm",
-    moodEmoji: "😌",
-    time: "2:15 PM",
-    title: "Project Breakthrough",
-    content: `Finally solved that bug that was bothering me all week. It turns out it was a simple typo in the configuration file. Sometimes the smallest things cause the biggest headaches.
-
-I celebrated with a nice cup of tea and spent some time refactoring the code to make it cleaner. Feeling accomplished and ready for the next challenge.`,
-  },
-  "3": {
-    id: 3,
-    date: "October 23, 2023",
-    mood: "Peaceful",
-    moodEmoji: "🌿",
-    time: "6:00 PM",
-    title: "Evening Walk",
-    content: `Took a walk by the river. It was very peaceful and quiet. Saw a family of ducks swimming together, which made me smile.
-
-The sunset was beautiful today - shades of orange and pink reflecting on the water. These simple moments of nature really help me decompress after a busy day.`,
-  },
-  "4": {
-    id: 4,
-    date: "October 22, 2023",
-    mood: "Reflective",
-    moodEmoji: "🌙",
-    time: "11:45 PM",
-    title: "Late Night Thoughts",
-    content: `Thinking about the future and where I want to be in 5 years. It's a bit scary but also exciting. There are so many possibilities.
-
-I've been journaling more consistently lately and I can already see the benefits. It helps me process my thoughts and emotions in a healthy way.`,
-  },
-};
+import { JournalEntry, journalService } from "../../lib/journal-service";
 
 export default function EntryDetail() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams();
+  const { user } = useUser();
 
-  const entry = mockEntries[id as string] || mockEntries["1"];
+  const [entry, setEntry] = useState<JournalEntry | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    const fetchEntry = async () => {
+      if (!user || !id) return;
+      try {
+        const data = await journalService.getById(user.id, id as string);
+        setEntry(data);
+      } catch (error) {
+        console.error("Error fetching entry:", error);
+        Alert.alert("Error", "Failed to load entry details.");
+        router.back();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEntry();
+  }, [user, id]);
 
   const handleDelete = () => {
     Alert.alert(
@@ -74,9 +51,17 @@ export default function EntryDetail() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => {
-            // TODO: Delete from database
-            router.back();
+          onPress: async () => {
+            if (!user || !id) return;
+            setDeleting(true);
+            try {
+              await journalService.delete(user.id, id as string);
+              router.back();
+            } catch (error) {
+              console.error("Error deleting entry:", error);
+              Alert.alert("Error", "Failed to delete entry.");
+              setDeleting(false);
+            }
           },
         },
       ]
@@ -84,9 +69,45 @@ export default function EntryDetail() {
   };
 
   const handleEdit = () => {
-    // TODO: Navigate to edit screen with entry data
-    Alert.alert("Coming Soon", "Edit functionality coming soon!");
+    router.push(`/(protected)/new-entry?id=${id}`);
   };
+
+  const formatDate = (isoString: string) => {
+    return new Date(isoString).toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const formatTime = (isoString: string) => {
+    return new Date(isoString).toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color="#F97316" />
+      </View>
+    );
+  }
+
+  if (!entry) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Text style={{ color: "#fff" }}>Entry not found</Text>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={{ marginTop: 20 }}
+        >
+          <Text style={{ color: "#F97316" }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -108,7 +129,7 @@ export default function EntryDetail() {
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
 
-          <Text style={styles.headerDate}>{entry.date}</Text>
+          <Text style={styles.headerDate}>{formatDate(entry.created_at)}</Text>
 
           <TouchableOpacity style={styles.menuButton} activeOpacity={0.7}>
             <Ionicons name="ellipsis-vertical" size={20} color="#FFFFFF" />
@@ -124,15 +145,19 @@ export default function EntryDetail() {
 
           {/* Mood Emoji */}
           <View style={styles.emojiContainer}>
-            <Text style={styles.moodEmoji}>{entry.moodEmoji}</Text>
+            <Text style={styles.moodEmoji}>{entry.mood_emoji}</Text>
           </View>
 
           {/* Entry Content */}
           <View style={styles.cardContent}>
             {/* Mood and Time */}
             <View style={styles.moodRow}>
-              <Text style={styles.moodText}>Feeling {entry.mood}</Text>
-              <Text style={styles.timeText}>{entry.time}</Text>
+              <Text style={styles.moodText}>
+                Feeling {entry.mood_label || "Normal"}
+              </Text>
+              <Text style={styles.timeText}>
+                {formatTime(entry.created_at)}
+              </Text>
             </View>
 
             {/* Title */}
@@ -152,9 +177,16 @@ export default function EntryDetail() {
           style={styles.deleteButton}
           onPress={handleDelete}
           activeOpacity={0.8}
+          disabled={deleting}
         >
-          <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.deleteButtonText}>Delete</Text>
+          {deleting ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.deleteButtonText}>Delete</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -174,6 +206,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#0A0A0A",
+  },
+  center: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   scrollView: {
     flex: 1,

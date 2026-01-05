@@ -146,10 +146,14 @@ export default function Home() {
       >
         {/* Header Section */}
         <View style={styles.header}>
-          {/* Journal Icon */}
-          <View style={styles.iconContainer}>
-            <Ionicons name="book" size={28} color="#FFFFFF" />
-          </View>
+          {/* App Icon */}
+          {/* <View style={styles.iconContainer}>
+            <Image
+              source={require("../../../assets/icons/splash-icon-light.png")}
+              style={styles.appIcon}
+              contentFit="contain"
+            />
+          </View> */}
 
           {/* Date */}
           <Text style={styles.dateText}>
@@ -295,18 +299,20 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   iconContainer: {
-    width: 64,
-    height: 64,
+    width: 74,
+    height: 74,
     borderRadius: 20,
-    backgroundColor: "#F97316",
-    alignItems: "center",
-    justifyContent: "center",
+    overflow: "hidden",
     marginBottom: 20,
     shadowColor: "#F97316",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 12,
     elevation: 8,
+  },
+  appIcon: {
+    width: "100%",
+    height: "100%",
   },
   dateText: {
     fontSize: 13,
