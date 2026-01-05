@@ -16,7 +16,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { aiService } from "../../../lib/ai-service";
 import {
   JournalEntry,
@@ -310,12 +313,12 @@ export default function Insights() {
   }, [stats]);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: insets.top + 10, paddingBottom: 120 },
+          { paddingTop: 10, paddingBottom: 120 },
         ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -658,7 +661,7 @@ export default function Insights() {
           />
         )}
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
