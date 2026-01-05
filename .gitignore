@@ -48,3 +48,14 @@ app-example
 
 # mac icon
 Icon?
+
+# Database
+*.sql
+
+# Editor
+.vscode/
+*.swp
+
+# Docs
+CLERK_SETUP.md
+LOCAL_BUILD_GUIDE.md
